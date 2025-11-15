@@ -1,0 +1,11 @@
+{
+    "python.defaultInterpreterPath": "C:/Users/omerf/.conda/envs/diffsum/python.exe",
+    "python.languageServer": "Pylance",
+    "python-envs.pythonProjects": [
+        {
+            "path": "",
+            "envManager": "ms-python.python:conda",
+            "packageManager": "ms-python.python:conda"
+        }
+    ]
+}
