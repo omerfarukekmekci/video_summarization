@@ -1,5 +1,5 @@
 import torch
-import torch.nn
+import torch.nn as nn
 import torch.nn.functional as F
 
 
@@ -21,10 +21,10 @@ class Attention(nn.Module):
 
         sims = torch.matmul(q, k.transpose(dim0=self.row_dim, dim1=self.col_dim))
 
-        scaled_sims = sims / torch.tensor(k.size(self.col_dim) ** 0.5)
+        scaled_sims = sims / (k.size(-1) ** 0.5)
 
         if mask is not None:
-            scaled_sims = scaled_sims.masked_fill(mask=mask, dim=self.col_dim)
+            scaled_sims = scaled_sims.masked_fill(mask == 0, float("-inf"))
 
         attention_percents = F.softmax(scaled_sims, dim=self.col_dim)
 
@@ -41,18 +41,14 @@ class MultiHeadAttention(nn.Module):
             [Attention(d_model, row_dim, col_dim) for _ in range(num_heads)]
         )
 
-        self.row_dim = row_dim
-        self.col_dim = col_dim
+        self.out_proj = nn.Linear(num_heads * d_model, d_model)
 
     def forward(self, encodings_for_q, encodings_for_k, encodings_for_v):
-        q = self.W_q(encodings_for_q)
-        k = self.W_k(encodings_for_k)
-        v = self.W_k(encodings_for_v)
+        head_outputs = [
+            head(encodings_for_q, encodings_for_k, encodings_for_v)
+            for head in self.heads
+        ]
 
-        return torch.cat(
-            [
-                head(encodings_for_q, encodings_for_k, encodings_for_v)
-                for head in self.heads
-            ],
-            dim=self.col_dim,
-        )
+        combined = torch.cat(head_outputs, dim=self.col_dim)
+
+        return self.out_proj(combined)
