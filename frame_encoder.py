@@ -43,6 +43,7 @@ class FrameEncoder(nn.Module):
         # Unflatten back to (batch, seq_len, d_model)
         feats = feats.reshape(b, t, -1)
 
+        # add positional encoding so the models knows the order of the frames
         feats = feats + self.positional_encoding[:, :T, :]
 
         return feats
