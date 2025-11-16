@@ -34,21 +34,45 @@ class Attention(nn.Module):
 
 
 class MultiHeadAttention(nn.Module):
-    def __init__(self, d_model=2, row_dim=0, col_dim=1, num_heads=1):
+    def __init__(self, d_model=8, num_heads=2):
         super().__init__()
+        assert d_model % num_heads == 0, "d_model must be divisible by num_heads"
 
-        self.heads = nn.ModuleList(
-            [Attention(d_model, row_dim, col_dim) for _ in range(num_heads)]
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.d_head = d_model // num_heads
+
+        # shared projections (one matrix produces all three of q, k, v)
+        self.W_qkv = nn.Linear(d_model, 3 * d_model)
+
+        # final projection after concatenation of heads
+        self.out_proj = nn.Linear(d_model, d_model)
+
+    def forward(self, x):
+        # x: (batch, seq_len, d_model)
+
+        qkv = self.W_qkv(x)  # (batch, seq_len, 3*d_model)
+        q, k, v = qkv.chunk(3, dim=-1)
+
+        # reshape from (batch, seq_len, d_model) to (batch, num_heads, seq_len, d_head)
+        q = q.reshape(q.shape[0], q.shape[1], self.num_heads, self.d_head).transpose(
+            1, 2
+        )
+        k = k.reshape(k.shape[0], k.shape[1], self.num_heads, self.d_head).transpose(
+            1, 2
+        )
+        v = v.reshape(v.shape[0], v.shape[1], self.num_heads, self.d_head).transpose(
+            1, 2
         )
 
-        self.out_proj = nn.Linear(num_heads * d_model, d_model)
+        # attention scores
+        scores = torch.matmul(q, k.transpose(-2, -1)) / (self.d_head**0.5)
 
-    def forward(self, encodings_for_q, encodings_for_k, encodings_for_v):
-        head_outputs = [
-            head(encodings_for_q, encodings_for_k, encodings_for_v)
-            for head in self.heads
-        ]
+        attn = F.softmax(scores, dim=-1)
 
-        combined = torch.cat(head_outputs, dim=self.col_dim)
+        out = torch.matmul(attn, v)
 
-        return self.out_proj(combined)
+        # merge heads again
+        out = out.transpose(1, 2).reshape(x.shape[0], x.shape[1], self.d_model)
+
+        return self.out_proj(out)
