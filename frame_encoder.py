@@ -35,13 +35,14 @@ class FrameEncoder(nn.Module):
         x = frames.reshape(b * t, c, h, w)
 
         # CNN features
-        feats = self.backbone(x)  # (b*t, 512, 1, 1)
+        feats = self.backbone(x)
         feats = feats.squeeze(-1).squeeze(-1)  # from (b*t, 512, 1, 1) to (b*t, 512)
 
-        # Project to Transformer d_model
         feats = self.proj(feats)  # (b*t, d_model)
 
         # Unflatten back to (batch, seq_len, d_model)
         feats = feats.reshape(b, t, -1)
+
+        feats = feats + self.positional_encoding[:, :T, :]
 
         return feats
