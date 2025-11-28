@@ -48,7 +48,7 @@ class MultiHeadAttention(nn.Module):
         # final projection after concatenation of heads
         self.out_proj = nn.Linear(d_model, d_model)
 
-    def forward(self, x):
+    def forward(self, x, mask=None):
         # x: (batch, seq_len, d_model)
 
         qkv = self.W_qkv(x)  # (batch, seq_len, 3*d_model)
@@ -67,6 +67,14 @@ class MultiHeadAttention(nn.Module):
 
         # attention scores
         scores = torch.matmul(q, k.transpose(-2, -1)) / (self.d_head**0.5)
+
+        if mask is not None:
+            mask = mask.to(dtype=torch.bool, device=scores.device)
+            if mask.dim() == 2:
+                mask = mask.unsqueeze(1).unsqueeze(2)  # (b, 1, 1, seq_len)
+            elif mask.dim() == 3:
+                mask = mask.unsqueeze(1)  # (b, 1, seq_len, seq_len?) allow broadcast
+            scores = scores.masked_fill(~mask, float("-inf"))
 
         attn = F.softmax(scores, dim=-1)
 

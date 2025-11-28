@@ -32,7 +32,7 @@ class TransformerEncoderBlock(nn.Module):
         # normalize before attention to stabilize training
         x_norm = self.norm1(x)
 
-        attn_out = self.self_attn(x_norm)
+        attn_out = self.self_attn(x_norm, mask=mask)
 
         attn_out = self.dropout(attn_out)
         x = x + attn_out  # residual connection

@@ -11,9 +11,9 @@ class TransformerEncoder(nn.Module):
             [TransformerEncoderBlock(d_model, num_heads) for _ in range(num_layers)]
         )
 
-    def forward(self, x):
+    def forward(self, x, mask=None):
         for layer in self.layers:
-            x = layer(x)
+            x = layer(x, mask=mask)
         return x
 
 
@@ -33,8 +33,7 @@ class VideoSummarizer(nn.Module):
         self.transformer = TransformerEncoder(d_model, num_layers, num_heads)
         self.head = FrameScoringHead(d_model)
 
-    def forward(self, frames):
+    def forward(self, frames, frame_mask=None):
         x = self.frame_encoder(frames)
-        x = self.transformer(x)
-        scores = self.head(x)
+        scores = self.head(self.transformer(x, mask=frame_mask))
         return scores
