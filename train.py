@@ -34,11 +34,11 @@ def parse_args():
         "--topk", type=int, default=5, help="Number of frames for diversity term"
     )
     parser.add_argument(
-        "--use-precomputed",
-        action="store_true",
-        help="Set if dataset features are already d_model-dimensional tokens",
+        "--max-seq-len",
+        type=int,
+        default=2048,
+        help="Pad/truncate sequences to this length; also used for positional encoding",
     )
-    parser.add_argument("--max-seq-len", type=int, default=None)
     return parser.parse_args()
 
 
@@ -61,8 +61,17 @@ def train():
         pin_memory=True,
     )
 
+    if not hasattr(dataset, "feature_dim"):
+        raise AttributeError(
+            "Dataset is missing 'feature_dim'. Ensure SumMeTVSumDataset exposes it."
+        )
+
     model = VideoSummarizer(
-        d_model=args.d_model, num_heads=args.num_heads, num_layers=args.num_layers
+        feature_dim=dataset.feature_dim,
+        d_model=args.d_model,
+        num_heads=args.num_heads,
+        num_layers=args.num_layers,
+        max_seq_len=args.max_seq_len,
     ).to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
@@ -77,12 +86,8 @@ def train():
             frame_mask = batch["frame_mask"].to(device)
             target_scores = batch["target_scores"].to(device)
 
-            if args.use_precomputed:
-                encoded = features
-            else:
-                encoded = model.frame_encoder(features)
-
-            encoded = model.transformer(encoded, mask=frame_mask)
+            tokens = model.frame_encoder(features, frame_mask=frame_mask)
+            encoded = model.transformer(tokens, mask=frame_mask)
             scores = model.head(encoded)
 
             selected_feats = None
@@ -92,7 +97,7 @@ def train():
                 )
 
             loss = loss_fn(
-                frames=features if not args.use_precomputed else None,
+                frames=None,
                 recon=None,
                 scores=scores,
                 selected_feats=selected_feats,

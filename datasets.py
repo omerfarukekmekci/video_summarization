@@ -121,10 +121,17 @@ class SumMeTVSumDataset(Dataset):
                     f"Video ids not present in {self.h5_path}: {sorted(missing)}"
                 )
 
+        if not all_ids:
+            raise ValueError(
+                f"No videos found in HDF5 file {self.h5_path}. "
+                "Verify the file matches the ECCV16 release."
+            )
+
         self.video_ids: List[str] = all_ids
         self.aggregate = aggregate
         self.max_seq_len = max_seq_len
         self.pad_value = pad_value
+        self.feature_dim = self._infer_feature_dim()
 
     def __len__(self) -> int:
         return len(self.video_ids)
@@ -214,6 +221,29 @@ class SumMeTVSumDataset(Dataset):
             )
 
         return features, target_scores, user_summary, frame_mask
+
+    def _infer_feature_dim(self) -> int:
+        """
+        Reads the first video's feature tensor to determine the per-frame dimension.
+        Raises descriptive errors when the data does not match expectations.
+        """
+
+        first_video = self.video_ids[0]
+        with h5py.File(self.h5_path, "r") as h5_file:
+            if first_video not in h5_file:
+                raise ValueError(
+                    f"Video id '{first_video}' missing from dataset file {self.h5_path}"
+                )
+            features = torch.from_numpy(h5_file[first_video]["features"][()])
+
+        if features.dim() != 2:
+            raise ValueError(
+                "Expected precomputed features to have shape (seq_len, feature_dim) "
+                f"but received tensor with shape {tuple(features.shape)} for video "
+                f"'{first_video}'. Ensure you are using the ECCV16 HDF5 release."
+            )
+
+        return features.shape[1]
 
 
 def video_summary_collate(batch: Sequence[VideoSummaryItem]) -> Dict[str, torch.Tensor]:

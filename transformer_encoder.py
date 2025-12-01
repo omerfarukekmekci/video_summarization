@@ -27,13 +27,22 @@ class FrameScoringHead(nn.Module):
 
 
 class VideoSummarizer(nn.Module):
-    def __init__(self, d_model=512, num_heads=8, num_layers=3):
+    def __init__(
+        self,
+        feature_dim,
+        d_model=512,
+        num_heads=8,
+        num_layers=3,
+        max_seq_len=4096,
+    ):
         super().__init__()
-        self.frame_encoder = FrameEncoder(d_model)
+        self.frame_encoder = FrameEncoder(
+            feature_dim=feature_dim, d_model=d_model, max_seq_len=max_seq_len
+        )
         self.transformer = TransformerEncoder(d_model, num_layers, num_heads)
         self.head = FrameScoringHead(d_model)
 
-    def forward(self, frames, frame_mask=None):
-        x = self.frame_encoder(frames)
-        scores = self.head(self.transformer(x, mask=frame_mask))
-        return scores
+    def forward(self, features, frame_mask=None):
+        tokens = self.frame_encoder(features, frame_mask=frame_mask)
+        encoded = self.transformer(tokens, mask=frame_mask)
+        return self.head(encoded)
