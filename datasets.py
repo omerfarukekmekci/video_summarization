@@ -255,19 +255,22 @@ def video_summary_collate(batch: Sequence[VideoSummaryItem]) -> Dict[str, torch.
     batch_size = len(batch)
     max_len = max(item.features.shape[0] for item in batch)
     feature_dim = batch[0].features.shape[1]
-    num_users = batch[0].user_summary.shape[0]
+    # Different videos (especially SumMe) may have varying numbers of annotators.
+    # We pad along the user dimension so that the collated tensor is rectangular.
+    max_users = max(item.user_summary.shape[0] for item in batch)
 
     features = torch.zeros(batch_size, max_len, feature_dim)
     target_scores = torch.zeros(batch_size, max_len)
     frame_mask = torch.zeros(batch_size, max_len, dtype=torch.bool)
-    user_summary = torch.zeros(batch_size, num_users, max_len)
+    user_summary = torch.zeros(batch_size, max_users, max_len)
 
     for i, item in enumerate(batch):
         seq_len = item.frame_mask.sum().item()
         features[i, :seq_len] = item.features[:seq_len]
         target_scores[i, :seq_len] = item.target_scores[:seq_len]
         frame_mask[i, :seq_len] = item.frame_mask[:seq_len]
-        user_summary[i, :, :seq_len] = item.user_summary[:, :seq_len]
+        user_count = item.user_summary.shape[0]
+        user_summary[i, :user_count, :seq_len] = item.user_summary[:, :seq_len]
 
     return {
         "features": features,

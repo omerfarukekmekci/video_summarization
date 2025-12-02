@@ -25,6 +25,23 @@ def parse_args():
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument(
+        "--checkpoint",
+        type=Path,
+        default=None,
+        help=(
+            "Optional path to save model.state_dict() after training. "
+            "If omitted, no checkpoint is written."
+        ),
+    )
+    parser.add_argument(
+        "--use-precomputed",
+        action="store_true",
+        help=(
+            "Deprecated flag kept for backward compatibility. "
+            "Precomputed ECCV16 features are always used in this version."
+        ),
+    )
+    parser.add_argument(
         "--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu"
     )
     parser.add_argument("--d-model", type=int, default=512)
@@ -113,6 +130,13 @@ def train():
 
         avg_loss = running_loss / len(dataloader)
         print(f"Epoch {epoch + 1}/{args.epochs} - loss: {avg_loss:.4f}")
+
+    # Save checkpoint at the end of training if a path is provided.
+    if args.checkpoint is not None:
+        ckpt_path = args.checkpoint
+        ckpt_path.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(model.state_dict(), ckpt_path)
+        print(f"Saved checkpoint to {ckpt_path}")
 
 
 if __name__ == "__main__":
