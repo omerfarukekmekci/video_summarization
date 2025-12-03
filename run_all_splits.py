@@ -32,6 +32,7 @@ def run(cmd):
 
 def train_and_eval(dataset_name):
     dataset_path = DATASETS[dataset_name]
+    split_file = SPLIT_FILE_SUMME if dataset_name == "summe" else SPLIT_FILE_TVSUM
 
     print(f"\n\n==============================")
     print(f"     DATASET: {dataset_name.upper()}")
@@ -47,14 +48,14 @@ def train_and_eval(dataset_name):
             "--dataset",
             dataset_path,
             "--split-file",
-            SPLIT_FILE_SUMME,
+            split_file,
             "--split",
             str(split),
             "--device",
             DEVICE,
             "--use-precomputed",
             "--epochs",
-            "30",
+            "50",
             "--checkpoint",
             ckpt_name,
         ]
@@ -72,7 +73,7 @@ def train_and_eval(dataset_name):
             "--dataset",
             dataset_path,
             "--split-file",
-            SPLIT_FILE_SUMME,
+            split_file,
             "--split",
             str(split),
             "--checkpoint",

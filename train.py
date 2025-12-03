@@ -2,6 +2,7 @@ import argparse
 from pathlib import Path
 
 import torch
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 from datasets import SumMeTVSumDataset, video_summary_collate
@@ -92,11 +93,21 @@ def train():
     ).to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    loss_fn = VideoSummaryLoss(target_ratio=0.15)
+    # Slightly down-weight sparsity and diversity so the model can focus more
+    # on matching the human importance scores.
+    loss_fn = VideoSummaryLoss(
+        target_ratio=0.15,
+        sparsity_weight=0.5,
+        diversity_weight=0.1,
+    )
 
     for epoch in range(args.epochs):
         model.train()
         running_loss = 0.0
+        running_reg_mse = 0.0
+        running_sparsity = 0.0
+        running_corr = 0.0
+        num_batches = 0
 
         for batch in dataloader:
             features = batch["features"].to(device)
@@ -127,9 +138,67 @@ def train():
             optimizer.step()
 
             running_loss += loss.item()
+            num_batches += 1
 
-        avg_loss = running_loss / len(dataloader)
-        print(f"Epoch {epoch + 1}/{args.epochs} - loss: {avg_loss:.4f}")
+            # --- Metrics for monitoring (no-grad to avoid graph retention) ---
+            with torch.no_grad():
+                # Regression MSE on valid frames
+                pred = scores
+                target = target_scores
+                if frame_mask is not None:
+                    valid_mask = frame_mask
+                    pred_flat = pred[valid_mask]
+                    target_flat = target[valid_mask]
+                else:
+                    pred_flat = pred.reshape(-1)
+                    target_flat = target.reshape(-1)
+
+                if pred_flat.numel() > 0:
+                    reg_mse = F.mse_loss(pred_flat, target_flat)
+                else:
+                    reg_mse = torch.tensor(0.0, device=device)
+
+                # Sparsity term (same as inside VideoSummaryLoss, but unweighted)
+                probs = torch.sigmoid(scores)
+                if frame_mask is not None:
+                    valid_probs = probs[frame_mask]
+                else:
+                    valid_probs = probs.reshape(-1)
+
+                if valid_probs.numel() > 0:
+                    sparsity = (valid_probs.mean() - loss_fn.sparsity.target_ratio) ** 2
+                else:
+                    sparsity = torch.tensor(0.0, device=device)
+
+                # Correlation between prediction and target (how well shapes match)
+                if pred_flat.numel() > 1:
+                    p_center = pred_flat - pred_flat.mean()
+                    t_center = target_flat - target_flat.mean()
+                    denom = (p_center.norm() * t_center.norm()).clamp_min(1e-8)
+                    corr = (p_center * t_center).sum() / denom
+                else:
+                    corr = torch.tensor(0.0, device=device)
+
+                running_reg_mse += reg_mse.item()
+                running_sparsity += sparsity.item()
+                running_corr += corr.item()
+
+        if num_batches == 0:
+            raise RuntimeError("No batches were processed during training epoch.")
+
+        avg_loss = running_loss / num_batches
+        avg_reg_mse = running_reg_mse / num_batches
+        avg_sparsity = running_sparsity / num_batches
+        avg_corr = running_corr / num_batches
+
+        # Print summary every epoch; you can watch trends and especially every 10th.
+        print(
+            f"Epoch {epoch + 1}/{args.epochs} - "
+            f"loss: {avg_loss:.4f}, "
+            f"reg_mse: {avg_reg_mse:.4f}, "
+            f"sparsity: {avg_sparsity:.4f}, "
+            f"corr: {avg_corr:.4f}"
+        )
 
     # Save checkpoint at the end of training if a path is provided.
     if args.checkpoint is not None:

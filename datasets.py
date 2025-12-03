@@ -264,6 +264,12 @@ def video_summary_collate(batch: Sequence[VideoSummaryItem]) -> Dict[str, torch.
     frame_mask = torch.zeros(batch_size, max_len, dtype=torch.bool)
     user_summary = torch.zeros(batch_size, max_users, max_len)
 
+    # We keep change_points, picks and n_frames as lists (no padding) because
+    # they are used only at evaluation time on a per-video basis.
+    change_points_list: List[Optional[torch.Tensor]] = []
+    picks_list: List[Optional[torch.Tensor]] = []
+    n_frames_list: List[int] = []
+
     for i, item in enumerate(batch):
         seq_len = item.frame_mask.sum().item()
         features[i, :seq_len] = item.features[:seq_len]
@@ -271,11 +277,17 @@ def video_summary_collate(batch: Sequence[VideoSummaryItem]) -> Dict[str, torch.
         frame_mask[i, :seq_len] = item.frame_mask[:seq_len]
         user_count = item.user_summary.shape[0]
         user_summary[i, :user_count, :seq_len] = item.user_summary[:, :seq_len]
+        change_points_list.append(item.change_points)
+        picks_list.append(item.picks)
+        n_frames_list.append(item.n_frames)
 
     return {
         "features": features,
         "target_scores": target_scores,
         "frame_mask": frame_mask,
         "user_summary": user_summary,
+        "change_points": change_points_list,
+        "picks": picks_list,
+        "n_frames": torch.tensor(n_frames_list, dtype=torch.long),
         "video_ids": [item.video_id for item in batch],
     }
