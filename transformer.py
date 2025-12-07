@@ -5,7 +5,7 @@ from attention import MultiHeadAttention
 
 
 class TransformerEncoderBlock(nn.Module):
-    def __init__(self, d_model, num_heads, dim_feedforward=None, dropout=0.1):
+    def __init__(self, d_model, num_heads, dim_feedforward=None, dropout=0.05):
         super().__init__()
 
         if dim_feedforward is None:

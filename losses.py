@@ -57,9 +57,9 @@ class VideoSummaryLoss(nn.Module):
     def __init__(
         self,
         target_ratio=0.15,
-        recon_weight=1.0,
-        sparsity_weight=1.0,
-        diversity_weight=0.5,
+        recon_weight=0.0,
+        sparsity_weight=3.0,
+        diversity_weight=0.0,
         regression_weight=1.0,
     ):
         super().__init__()
@@ -104,11 +104,15 @@ class VideoSummaryLoss(nn.Module):
             else:
                 pred = pred.reshape(-1)
                 target = target.reshape(-1)
-            total = total + self.regression_weight * F.mse_loss(pred, target)
+
+            # Train with raw scores (no sigmoid)
+            # Normalize target to [0, 1] range
+            target_norm = torch.clamp(target, 0.0, 1.0)
+            total = total + self.regression_weight * F.mse_loss(pred, target_norm)
 
         if self.sparsity_weight > 0 and scores is not None:
-            probs = torch.sigmoid(scores)
-            total = total + self.sparsity_weight * self.sparsity(probs, frame_mask)
+            # Apply sparsity directly to raw scores
+            total = total + self.sparsity_weight * self.sparsity(scores, frame_mask)
 
         if self.diversity_weight > 0 and selected_feats is not None:
             total = total + self.diversity_weight * diversity_loss(selected_feats)

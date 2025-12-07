@@ -4,8 +4,8 @@ import json
 from datetime import datetime
 
 DATASETS = {
-    "summe": "datasets\eccv16_dataset_summe_google_pool5.h5",
-    "tvsum": "datasets\eccv16_dataset_tvsum_google_pool5.h5",
+    "summe": "datasets\\eccv16_dataset_summe_google_pool5.h5",
+    "tvsum": "datasets\\eccv16_dataset_tvsum_google_pool5.h5",
 }
 
 SPLIT_FILE_SUMME = "splits_summe.json"
@@ -22,7 +22,7 @@ def run(cmd):
     result = subprocess.run(cmd, capture_output=True, text=True)
 
     if result.returncode != 0:
-        print("❌ Command failed:")
+        print("✗ Command failed:")
         print(result.stderr)
         return None
 
@@ -55,7 +55,7 @@ def train_and_eval(dataset_name):
             DEVICE,
             "--use-precomputed",
             "--epochs",
-            "50",
+            "100",
             "--checkpoint",
             ckpt_name,
         ]

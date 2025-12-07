@@ -1,6 +1,10 @@
 import argparse
+import json
+import random
 from pathlib import Path
 
+import h5py
+import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
@@ -22,9 +26,9 @@ def parse_args():
     parser.add_argument(
         "--split", type=str, default=None, help="train/val/test split name"
     )
-    parser.add_argument("--batch-size", type=int, default=4)
-    parser.add_argument("--epochs", type=int, default=20)
-    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--lr", type=float, default=5e-4)
     parser.add_argument(
         "--checkpoint",
         type=Path,
@@ -49,13 +53,19 @@ def parse_args():
     parser.add_argument("--num-heads", type=int, default=8)
     parser.add_argument("--num-layers", type=int, default=3)
     parser.add_argument(
-        "--topk", type=int, default=5, help="Number of frames for diversity term"
+        "--topk", type=int, default=0, help="Number of frames for diversity term"
     )
     parser.add_argument(
         "--max-seq-len",
         type=int,
         default=2048,
         help="Pad/truncate sequences to this length; also used for positional encoding",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for reproducibility",
     )
     return parser.parse_args()
 
@@ -64,10 +74,47 @@ def train():
     args = parse_args()
     device = torch.device(args.device)
 
+    # Set random seeds for reproducibility
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(args.seed)
+        torch.cuda.manual_seed_all(args.seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+    # For cross-validation: if a split is specified, use all videos EXCEPT that split for training
+    train_video_ids = None
+    if args.split_file is not None and args.split is not None:
+        # Load all video IDs from the dataset
+        with h5py.File(args.dataset, "r") as h5_file:
+            all_video_ids = sorted(h5_file.keys())
+
+        # Load the test split IDs
+        split_data = json.loads(Path(args.split_file).read_text())
+        if args.split not in split_data:
+            raise ValueError(f"Split '{args.split}' not found in {args.split_file}")
+        test_video_ids = set(split_data[args.split])
+
+        # Exclude test split videos from training
+        train_video_ids = [vid for vid in all_video_ids if vid not in test_video_ids]
+
+        if len(train_video_ids) == 0:
+            raise ValueError(
+                f"No training videos found after excluding test split '{args.split}'. "
+                "This suggests all videos are in the test split, which is invalid."
+            )
+
+        print(
+            f"Training on {len(train_video_ids)} videos (excluding {len(test_video_ids)} test videos from split '{args.split}')"
+        )
+
     dataset = SumMeTVSumDataset(
         h5_path=args.dataset,
-        split=args.split,
-        split_file=args.split_file,
+        split=None,  # Don't use split parameter when we have explicit video_ids
+        split_file=None,
+        video_ids=train_video_ids,  # Use explicit list of training videos
         max_seq_len=args.max_seq_len,
     )
     dataloader = DataLoader(
@@ -93,12 +140,17 @@ def train():
     ).to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    # Use learning rate scheduler for better convergence
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=args.epochs, eta_min=1e-6
+    )
     # Slightly down-weight sparsity and diversity so the model can focus more
     # on matching the human importance scores.
     loss_fn = VideoSummaryLoss(
         target_ratio=0.15,
-        sparsity_weight=0.5,
-        diversity_weight=0.1,
+        sparsity_weight=3.0,
+        diversity_weight=0.0,
+        regression_weight=1.0,
     )
 
     for epoch in range(args.epochs):
@@ -119,10 +171,6 @@ def train():
             scores = model.head(encoded)
 
             selected_feats = None
-            if args.topk > 0:
-                selected_feats, _ = hard_topk_frames(
-                    encoded, scores, mask=frame_mask, k=args.topk
-                )
 
             loss = loss_fn(
                 frames=None,
@@ -135,6 +183,8 @@ def train():
 
             optimizer.zero_grad()
             loss.backward()
+            # Gradient clipping for stability
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
 
             running_loss += loss.item()
@@ -142,7 +192,7 @@ def train():
 
             # --- Metrics for monitoring (no-grad to avoid graph retention) ---
             with torch.no_grad():
-                # Regression MSE on valid frames
+                # Regression MSE on valid frames (using normalized scores for monitoring)
                 pred = scores
                 target = target_scores
                 if frame_mask is not None:
@@ -154,7 +204,10 @@ def train():
                     target_flat = target.reshape(-1)
 
                 if pred_flat.numel() > 0:
-                    reg_mse = F.mse_loss(pred_flat, target_flat)
+                    # Use normalized scores for monitoring (matching loss function)
+                    pred_norm = torch.sigmoid(pred_flat)
+                    target_norm = torch.clamp(target_flat, 0.0, 1.0)
+                    reg_mse = F.mse_loss(pred_norm, target_norm)
                 else:
                     reg_mse = torch.tensor(0.0, device=device)
 
@@ -191,13 +244,18 @@ def train():
         avg_sparsity = running_sparsity / num_batches
         avg_corr = running_corr / num_batches
 
+        # Update learning rate scheduler
+        scheduler.step()
+
         # Print summary every epoch; you can watch trends and especially every 10th.
+        current_lr = optimizer.param_groups[0]["lr"]
         print(
             f"Epoch {epoch + 1}/{args.epochs} - "
             f"loss: {avg_loss:.4f}, "
             f"reg_mse: {avg_reg_mse:.4f}, "
             f"sparsity: {avg_sparsity:.4f}, "
-            f"corr: {avg_corr:.4f}"
+            f"corr: {avg_corr:.4f}, "
+            f"lr: {current_lr:.6f}"
         )
 
     # Save checkpoint at the end of training if a path is provided.

@@ -21,6 +21,9 @@ class FrameScoringHead(nn.Module):
     def __init__(self, d_model):
         super().__init__()
         self.scorer = nn.Linear(d_model, 1)
+        # Initialize weights to produce small initial outputs
+        nn.init.xavier_uniform_(self.scorer.weight)
+        nn.init.zeros_(self.scorer.bias)
 
     def forward(self, x):
         return self.scorer(x).squeeze(-1)  # (batch, seq_len)

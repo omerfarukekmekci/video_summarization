@@ -9,7 +9,7 @@ class FrameEncoder(nn.Module):
     transformer dimension and injects sinusoidal positional encodings.
     """
 
-    def __init__(self, feature_dim, d_model=512, max_seq_len=4096, dropout=0.1):
+    def __init__(self, feature_dim, d_model=512, max_seq_len=4096, dropout=0.05):
         super().__init__()
         self.feature_dim = feature_dim
         self.d_model = d_model

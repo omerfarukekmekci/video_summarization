@@ -380,7 +380,19 @@ def evaluate() -> None:
                     )
 
                 # Convert to numpy for generate_summary / evaluate_summary.
-                scores_np = vid_scores.cpu().numpy().astype(np.float32)
+                scores_tensor = vid_scores.cpu()
+                # Normalize to [0, 1] using min-max scaling per video
+                if scores_tensor.numel() > 0:
+                    s_min = scores_tensor.min()
+                    s_max = scores_tensor.max()
+                    if s_max > s_min:
+                        scores_normalized = (scores_tensor - s_min) / (s_max - s_min)
+                    else:
+                        scores_normalized = torch.ones_like(scores_tensor) * 0.5
+                else:
+                    scores_normalized = scores_tensor
+                scores_np = scores_normalized.numpy().astype(np.float32)
+
                 # change_points and picks are small; handle missing .device carefully.
                 cp_np = vid_change_points.cpu().numpy()
                 picks_np = vid_picks.cpu().numpy()

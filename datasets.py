@@ -100,7 +100,7 @@ class SumMeTVSumDataset(Dataset):
         split: Optional[str] = None,
         split_file: Optional[Path] = None,
         video_ids: Optional[Sequence[str]] = None,
-        aggregate: str = "mean",
+        aggregate: str = "median",
         max_seq_len: Optional[int] = None,
         pad_value: float = 0.0,
     ):
